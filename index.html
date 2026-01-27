@@ -357,12 +357,11 @@
         calculatePlayerStats();
         
         // Initial Sort (Date Descending)
-        currentSortKey = 'date';
-        sortDirection = -1;
+        currentSortKey = ''; // Reset so sortData() triggers the default 'date' direction (-1)
         sortData('date'); 
         
         // Ensure Stats table renders initially!
-        sortStats('player'); 
+        sortStats('player');
         
         document.getElementById('controls').classList.remove('hidden');
         document.getElementById('statsFooter').classList.remove('hidden');
