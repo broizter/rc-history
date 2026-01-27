@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RCLootCouncil History Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script>const whTooltips = {colorLinks: true, iconizeLinks: true, renameLinks: true};</script>
+    <script src="https://wow.zamimg.com/widgets/power.js"></script>
+    <style>
+        body { background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        .class-DEATHKNIGHT { color: #C41F3B; }
+        .class-DRUID { color: #FF7D0A; }
+        .class-HUNTER { color: #ABD473; }
+        .class-MAGE { color: #40C7EB; }
+        .class-PALADIN { color: #F58CBA; }
+        .class-PRIEST { color: #FFFFFF; }
+        .class-ROGUE { color: #FFF569; }
+        .class-SHAMAN { color: #0070DE; }
+        .class-WARLOCK { color: #8787ED; }
+        .class-WARRIOR { color: #C79C6E; }
+        
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: #1f1f1f; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        .tab-active { border-bottom: 2px solid #ecc94b; color: #ecc94b; }
+        .tab-inactive { color: #a0aec0; }
+        .tab-inactive:hover { color: #e2e8f0; }
+
+        /* History Dropdown Transition */
+        #historyDropdown { transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-8">
+
+    <div class="max-w-7xl w-full bg-gray-800 rounded-lg shadow-xl overflow-hidden relative">
+        
+        <div class="p-6 bg-gray-900 border-b border-gray-700 flex justify-between items-center flex-wrap gap-4 relative z-20">
+            <div>
+                <h1 class="text-3xl font-bold text-yellow-500">RCLootCouncil History Viewer</h1>
+                <p class="text-gray-400 text-sm mt-1">Visualise your RCLootCouncil history!</p>
+            </div>
+            <div class="flex gap-3 items-center relative">
+                <button onclick="toggleHistory()" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition flex items-center gap-2">
+                    <span>🕒</span> History
+                </button>
+
+                <input type="file" id="fileInput" class="hidden" accept=".lua,.txt">
+                <label for="fileInput" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition inline-block">
+                    📂 Upload RCLootCouncil.lua
+                </label>
+
+                <div id="historyDropdown" class="absolute top-full right-0 mt-2 w-96 bg-gray-800 border border-gray-600 rounded-lg shadow-2xl hidden flex flex-col max-h-96 z-50">
+                    <div class="p-3 border-b border-gray-700 bg-gray-850 font-bold text-gray-300 flex justify-between items-center">
+                        <span>Local Browser History</span>
+                        <span class="text-xs font-normal text-gray-500" id="dbSize"></span>
+                    </div>
+                    <div id="historyList" class="overflow-y-auto p-2 space-y-2 flex-grow">
+                        <div class="text-center text-gray-500 py-4 text-sm">No history found.</div>
+                    </div>
+                    <div class="p-2 border-t border-gray-700 bg-gray-900 text-xs text-gray-500 text-center">
+                        Files are stored in your browser cache.<br>Clearing browser data will remove them.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-850 border-b border-gray-700 flex flex-col md:flex-row justify-between items-end md:items-center px-6 py-2 relative z-10">
+            <div class="flex space-x-6 text-sm font-bold w-full md:w-auto">
+                <button id="tabHistory" onclick="switchTab('history')" class="py-3 px-1 tab-active transition">Loot History</button>
+                <button id="tabStats" onclick="switchTab('stats')" class="py-3 px-1 tab-inactive transition">Player Stats</button>
+            </div>
+
+            <div id="controls" class="hidden flex gap-2 w-full md:w-auto mt-2 md:mt-0 pb-2 md:pb-0">
+                <input type="text" id="searchBox" placeholder="Search..." class="p-2 bg-gray-700 rounded text-white border border-gray-600 focus:outline-none focus:border-blue-500 text-sm w-64">
+                <button onclick="exportToExcel()" class="bg-green-700 hover:bg-green-800 text-white px-3 py-1 rounded font-bold text-sm transition whitespace-nowrap" title="Download Excel file with multiple tabs">
+                    ⬇️ Export Spreadsheet
+                </button>
+            </div>
+        </div>
+
+        <div id="viewHistory" class="overflow-x-auto min-h-[400px]">
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-gray-700 text-gray-300 uppercase text-xs">
+                    <tr>
+                        <th class="p-3 cursor-pointer hover:text-white select-none" onclick="sortData('date')">Date ↕</th>
+                        <th class="p-3 cursor-pointer hover:text-white select-none" onclick="sortData('player')">Player ↕</th>
+                        <th class="p-3">Item Won</th>
+                        <th class="p-3 cursor-pointer hover:text-white select-none" onclick="sortData('response')">Reason ↕</th>
+                        <th class="p-3 cursor-pointer hover:text-white select-none" onclick="sortData('boss')">Boss ↕</th>
+                        <th class="p-3 cursor-pointer hover:text-white select-none" onclick="sortData('votes')">Votes ↕</th>
+                    </tr>
+                </thead>
+                <tbody id="lootTableBody" class="text-sm">
+                    <tr class="bg-gray-800">
+                        <td colspan="6" class="p-12 text-center text-gray-500">
+                            <p class="text-lg text-gray-400 mb-2">No loot history loaded yet.</p>
+                            <p class="text-sm">
+                                To begin, open a previous entry from the "History" button, or upload a new <code class="bg-gray-700 px-1 py-0.5 rounded text-gray-300">RCLootCouncil.lua</code> file. It can be found in:
+                            </p>
+                            <p class="mt-2 font-mono text-xs text-gray-600 bg-gray-900 inline-block px-3 py-1 rounded border border-gray-700">
+                                World of Warcraft\WTF\Account\&lt;YOUR ACCOUNT&gt;\SavedVariables\
+                            </p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="viewStats" class="overflow-x-auto min-h-[400px] hidden">
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-gray-700 text-gray-300 uppercase text-xs">
+                    <tr>
+                        <th class="p-3 cursor-pointer hover:text-white select-none" onclick="sortStats('player')">Player ↕</th>
+                        <th class="p-3 cursor-pointer hover:text-white select-none" onclick="sortStats('lastDate')">Last Loot Date ↕</th>
+                        <th class="p-3">Last Item Won</th>
+                        <th class="p-3 cursor-pointer hover:text-white select-none" onclick="sortStats('total')">Total Items ↕</th>
+                        <th class="p-3 cursor-pointer hover:text-white select-none" onclick="sortStats('ms')">Main Spec ↕</th>
+                        <th class="p-3 cursor-pointer hover:text-white select-none" onclick="sortStats('os')">Off Spec ↕</th>
+                    </tr>
+                </thead>
+                <tbody id="statsTableBody" class="text-sm">
+                    <tr class="bg-gray-800">
+                        <td colspan="6" class="p-12 text-center text-gray-500">
+                            <p class="text-lg text-gray-400 mb-2">No player stats loaded yet.</p>
+                            <p class="text-sm">
+                                To begin, open a previous entry from the "History" button, or upload a new <code class="bg-gray-700 px-1 py-0.5 rounded text-gray-300">RCLootCouncil.lua</code> file. It can be found in:
+                            </p>
+                            <p class="mt-2 font-mono text-xs text-gray-600 bg-gray-900 inline-block px-3 py-1 rounded border border-gray-700">
+                                World of Warcraft\WTF\Account\&lt;YOUR ACCOUNT&gt;\SavedVariables\
+                            </p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="statsFooter" class="p-3 bg-gray-900 text-right text-xs text-gray-500 hidden">
+            Loaded <span id="entryCount">0</span> entries.
+        </div>
+    </div>
+
+<script>
+    // --- INDEXEDDB SETUP ---
+    const DB_NAME = 'RCLootViewerDB';
+    const STORE_NAME = 'uploads';
+    let db;
+
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        }
+    };
+    request.onsuccess = (e) => {
+        db = e.target.result;
+        renderHistoryList(); 
+    };
+    request.onerror = (e) => console.error("DB Error", e);
+
+    // --- APP LOGIC ---
+
+    document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+    document.getElementById('searchBox').addEventListener('keyup', filterTable);
+
+    let allLootData = [];
+    let playerStatsList = []; 
+    let currentTab = 'history';
+    
+    // Sort State
+    let currentSortKey = 'date';
+    let sortDirection = -1; // -1 = Descending (default for date)
+
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const content = e.target.result;
+            saveToHistory(file.name, content);
+            parseLua(content);
+        };
+        reader.readAsText(file);
+    }
+
+    // --- HISTORY FUNCTIONS ---
+
+    function saveToHistory(filename, content) {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const record = {
+            id: Date.now(),
+            filename: filename,
+            date: new Date().toLocaleString(),
+            content: content
+        };
+        store.add(record);
+        transaction.oncomplete = () => {
+            renderHistoryList();
+        };
+    }
+
+    function renderHistoryList() {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+
+        request.onsuccess = () => {
+            const list = document.getElementById('historyList');
+            const records = request.result.sort((a, b) => b.id - a.id); 
+            
+            list.innerHTML = records.length ? '' : '<div class="text-center text-gray-500 py-4 text-sm">No history found.</div>';
+
+            records.forEach(rec => {
+                const item = document.createElement('div');
+                item.className = "bg-gray-700 p-2 rounded flex justify-between items-center text-sm border border-gray-600 hover:bg-gray-650 transition group";
+                item.innerHTML = `
+                    <div class="cursor-pointer flex-grow" onclick="loadHistoryItem(${rec.id})">
+                        <div class="text-white font-bold truncate w-40">${rec.filename}</div>
+                        <div class="text-xs text-gray-400">${rec.date}</div>
+                    </div>
+                    <div class="flex items-center">
+                        <button onclick="downloadHistoryItem(${rec.id})" class="text-blue-400 hover:text-blue-200 p-1 mx-1" title="Download Original File">⬇️</button>
+                        <button onclick="deleteHistoryItem(${rec.id})" class="text-red-400 hover:text-red-200 p-1 ml-1" title="Delete">✖</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        };
+    }
+
+    function loadHistoryItem(id) {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(id);
+        request.onsuccess = () => {
+            if (request.result) {
+                parseLua(request.result.content);
+                toggleHistory(); 
+            }
+        };
+    }
+
+    function downloadHistoryItem(id) {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(id);
+        request.onsuccess = () => {
+            const rec = request.result;
+            if (rec) {
+                const blob = new Blob([rec.content], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = rec.filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+        };
+    }
+
+    function deleteHistoryItem(id) {
+        if (!confirm("Remove this file from history?")) return;
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        store.delete(id);
+        transaction.oncomplete = () => renderHistoryList();
+    }
+
+    function toggleHistory() {
+        document.getElementById('historyDropdown').classList.toggle('hidden');
+    }
+
+    document.addEventListener('click', function(event) {
+        const dropdown = document.getElementById('historyDropdown');
+        const button = document.querySelector('button[onclick="toggleHistory()"]');
+        if (dropdown && !dropdown.contains(event.target) && !button.contains(event.target)) {
+            dropdown.classList.add('hidden');
+        }
+    });
+
+    function switchTab(tab) {
+        currentTab = tab;
+        document.getElementById('tabHistory').className = tab === 'history' ? 'py-3 px-1 tab-active transition' : 'py-3 px-1 tab-inactive transition';
+        document.getElementById('tabStats').className = tab === 'stats' ? 'py-3 px-1 tab-active transition' : 'py-3 px-1 tab-inactive transition';
+        document.getElementById('viewHistory').classList.toggle('hidden', tab !== 'history');
+        document.getElementById('viewStats').classList.toggle('hidden', tab !== 'stats');
+        document.getElementById('searchBox').value = '';
+        filterTable();
+    }
+
+    function parseLua(luaContent) {
+        const dbStart = luaContent.indexOf('RCLootCouncilLootDB =');
+        if (dbStart === -1) {
+            alert("Could not find RCLootCouncilLootDB in the file.");
+            return;
+        }
+        
+        allLootData = [];
+        
+        const lines = luaContent.split('\n');
+        let currentPlayer = "";
+        let currentEntry = {};
+        let insideLootBlock = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim();
+
+            if (!insideLootBlock) {
+                const playerMatch = line.match(/^\["(.*?)"\] = \{$/);
+                if (playerMatch) {
+                    let potentialName = playerMatch[1];
+                    if (!potentialName.includes(" - ")) {
+                        currentPlayer = potentialName;
+                    }
+                    continue;
+                }
+            }
+
+            if (line.startsWith('{') && currentPlayer && !insideLootBlock) {
+                insideLootBlock = true;
+                currentEntry = { player: currentPlayer };
+                continue;
+            }
+
+            if (line.startsWith('}, -- [') && insideLootBlock) {
+                if (currentEntry.lootWon) {
+                    allLootData.push(currentEntry);
+                }
+                insideLootBlock = false;
+                continue;
+            }
+
+            if (insideLootBlock) {
+                const stringMatch = line.match(/\["(.*?)"\] = "(.*?)",/);
+                const numberMatch = line.match(/\["(.*?)"\] = ([\d\.]+),/);
+                const boolMatch = line.match(/\["(.*?)"\] = (true|false),/);
+
+                if (stringMatch) {
+                    currentEntry[stringMatch[1]] = stringMatch[2];
+                } else if (numberMatch) {
+                    currentEntry[numberMatch[1]] = parseFloat(numberMatch[2]);
+                } else if (boolMatch) {
+                    currentEntry[boolMatch[1]] = (boolMatch[2] === 'true');
+                }
+            }
+        }
+
+        calculatePlayerStats();
+        
+        // Initial Sort (Date Descending)
+        currentSortKey = 'date';
+        sortDirection = -1;
+        sortData('date'); 
+        
+        // Ensure Stats table renders initially!
+        sortStats('player'); 
+        
+        document.getElementById('controls').classList.remove('hidden');
+        document.getElementById('statsFooter').classList.remove('hidden');
+        document.getElementById('entryCount').innerText = allLootData.length;
+    }
+
+    function calculatePlayerStats() {
+        const statsMap = {};
+
+        allLootData.forEach(entry => {
+            const p = entry.player;
+            if (!statsMap[p]) {
+                statsMap[p] = { 
+                    player: p, 
+                    class: entry.class,
+                    total: 0, 
+                    ms: 0, 
+                    os: 0,
+                    lastDateRaw: 0,
+                    lastDateStr: "-",
+                    lastTimeStr: "",
+                    lastItem: "" 
+                };
+            }
+
+            const s = statsMap[p];
+            const r = (entry.response || "").toLowerCase();
+            let isValidItem = false;
+            
+            if (r.includes('upgrade') || r.includes('minor') || r.includes('best in slot') || r.includes('bis')) {
+                s.ms++;
+                isValidItem = true;
+            } else if (r.includes('off spec') || r.includes('os')) {
+                s.os++;
+                isValidItem = true;
+            }
+
+            if (isValidItem) {
+                s.total++;
+                const entryDateVal = parseInt(convertDate(entry.date) + (entry.time ? entry.time.replace(/:/g, '') : '000000'));
+                if (entryDateVal > s.lastDateRaw) {
+                    s.lastDateRaw = entryDateVal;
+                    s.lastDateStr = entry.date;
+                    s.lastTimeStr = entry.time;
+                    s.lastItem = entry.lootWon;
+                }
+            }
+        });
+        playerStatsList = Object.values(statsMap);
+    }
+
+    // --- UTILS ---
+
+    function convertDate(dateStr) {
+        if (!dateStr) return "000000";
+        const parts = dateStr.split('/');
+        if (parts.length === 3) return parts[2] + parts[1] + parts[0];
+        return dateStr;
+    }
+
+    function formatDateTime(dateStr, timeStr) {
+        if (!dateStr || !dateStr.includes('/')) return dateStr + (timeStr ? " " + timeStr : "");
+        const [d, m, y] = dateStr.split('/');
+        const year = y.length === 2 ? '20' + y : y;
+        return `${year}-${m}-${d}` + (timeStr ? " " + timeStr : "");
+    }
+
+    function parseItemLink(itemString) {
+        if (!itemString) return { id: 0, name: "Unknown" };
+        const idMatch = itemString.match(/Hitem:(\d+):/);
+        const nameMatch = itemString.match(/\[(.*?)\]/);
+        return {
+            id: idMatch ? idMatch[1] : 0,
+            name: nameMatch ? nameMatch[1] : "Unknown Item"
+        };
+    }
+
+    function getResponseWeight(r) {
+        r = (r || "").toLowerCase();
+        if (r.includes('upgrade') || r.includes('minor')) return 2; 
+        if (r.includes('best in slot') || r.includes('bis')) return 1; 
+        if (r.includes('off spec') || r.includes('os')) return 3;
+        if (r.includes('free')) return 4;
+        if (r.includes('disenchant')) return 5;
+        if (r.includes('pass')) return 6;
+        return 7; 
+    }
+
+    function getResponseColor(response) {
+        if (!response) return "bg-gray-600 text-white";
+        const r = response.toLowerCase();
+        if (r.includes('upgrade') || r.includes('minor')) return "bg-blue-900 text-blue-200 border border-blue-700";
+        if (r.includes('best in slot') || r.includes('bis')) return "bg-green-900 text-green-200 border border-green-700";
+        if (r.includes('off spec') || r.includes('os')) return "bg-yellow-900 text-yellow-200 border border-yellow-700";
+        if (r.includes('disenchant')) return "bg-purple-900 text-purple-200 border border-purple-700";
+        return "bg-gray-700 text-gray-200";
+    }
+
+    // --- SORTING ---
+
+    function sortData(key) {
+        if (key === currentSortKey) {
+            sortDirection *= -1; // Toggle
+        } else {
+            currentSortKey = key;
+            // Default Sort Directions per Column Type
+            if (key === 'date' || key === 'votes') {
+                sortDirection = -1; // Newest/Highest first
+            } else if (key === 'response') {
+                sortDirection = 1; // Best > Worst
+            } else {
+                sortDirection = 1; // A-Z
+            }
+        }
+        
+        allLootData.sort((a, b) => {
+            let valA, valB;
+            if (key === 'date') {
+                valA = convertDate(a.date) + (a.time || "");
+                valB = convertDate(b.date) + (b.time || "");
+            } else if (key === 'votes') {
+                valA = a.votes || 0;
+                valB = b.votes || 0;
+            } else if (key === 'response') {
+                valA = getResponseWeight(a.response);
+                valB = getResponseWeight(b.response);
+            } else {
+                valA = (a[key] || "").toLowerCase();
+                valB = (b[key] || "").toLowerCase();
+            }
+            return (valA < valB ? -1 : 1) * sortDirection;
+        });
+        renderHistoryTable();
+    }
+
+    function sortStats(key) {
+        // Simple toggle for Stats since we don't need complex default logic there
+        if (key === currentSortKey) sortDirection *= -1;
+        else sortDirection = 1;
+        currentSortKey = key;
+
+        playerStatsList.sort((a, b) => {
+            let sortKey = key;
+            if (key === 'lastDate') sortKey = 'lastDateRaw';
+            let valA = a[sortKey];
+            let valB = b[sortKey];
+            if (typeof valA === 'string') valA = valA.toLowerCase();
+            if (typeof valB === 'string') valB = valB.toLowerCase();
+            if (valA < valB) return -1 * sortDirection;
+            if (valA > valB) return 1 * sortDirection;
+            return 0;
+        });
+        renderStatsTable();
+    }
+
+    function renderHistoryTable() {
+        const tbody = document.getElementById('lootTableBody');
+        tbody.innerHTML = '';
+        allLootData.forEach(entry => {
+            const row = document.createElement('tr');
+            row.className = 'border-b border-gray-700 hover:bg-gray-750 transition';
+            const item = parseItemLink(entry.lootWon);
+            const playerClass = entry.class ? entry.class.toUpperCase() : "PRIEST"; 
+            const itemLink = `<a href="https://www.wowhead.com/wotlk/item=${item.id}" class="font-medium hover:underline text-purple-400" target="_blank" data-wh-rename-link="true" data-wh-icon-size="small">${item.name}</a>`;
+
+            row.innerHTML = `
+                <td class="p-3 text-gray-400 whitespace-nowrap">${entry.date} <span class="text-xs text-gray-600 block">${entry.time}</span></td>
+                <td class="p-3 font-medium class-${playerClass}">${entry.player}</td>
+                <td class="p-3">${itemLink}</td>
+                <td class="p-3"><span class="inline-block px-2 py-1 text-xs font-semibold rounded ${getResponseColor(entry.response)}">${entry.response}</span></td>
+                <td class="p-3 text-gray-400 text-sm">${entry.instance} <br> <span class="text-gray-500 text-xs">${entry.boss || 'Unknown'}</span></td>
+                <td class="p-3 text-gray-400">${entry.votes !== undefined ? entry.votes : '-'}</td>
+            `;
+            tbody.appendChild(row);
+        });
+        if (window.$WowheadPower) window.$WowheadPower.refreshLinks();
+    }
+
+    function renderStatsTable() {
+        const tbody = document.getElementById('statsTableBody');
+        tbody.innerHTML = '';
+        playerStatsList.forEach(stat => {
+            const row = document.createElement('tr');
+            row.className = 'border-b border-gray-700 hover:bg-gray-750 transition';
+            const item = parseItemLink(stat.lastItem);
+            const playerClass = stat.class ? stat.class.toUpperCase() : "PRIEST";
+            const itemLink = item.id ? `<a href="https://www.wowhead.com/wotlk/item=${item.id}" class="font-medium hover:underline text-purple-400" target="_blank" data-wh-rename-link="true" data-wh-icon-size="small">${item.name}</a>` : '<span class="text-gray-600">-</span>';
+
+            row.innerHTML = `
+                <td class="p-3 font-medium class-${playerClass}">${stat.player}</td>
+                <td class="p-3 text-gray-300">${stat.lastDateStr}</td>
+                <td class="p-3">${itemLink}</td>
+                <td class="p-3 font-bold text-white">${stat.total}</td>
+                <td class="p-3 text-green-400">${stat.ms}</td>
+                <td class="p-3 text-yellow-500">${stat.os}</td>
+            `;
+            tbody.appendChild(row);
+        });
+        if (window.$WowheadPower) window.$WowheadPower.refreshLinks();
+    }
+
+    function filterTable() {
+        const query = document.getElementById('searchBox').value.toLowerCase();
+        const historyRows = document.querySelectorAll('#lootTableBody tr');
+        historyRows.forEach(row => { row.style.display = row.innerText.toLowerCase().includes(query) ? '' : 'none'; });
+        const statsRows = document.querySelectorAll('#statsTableBody tr');
+        statsRows.forEach(row => { row.style.display = row.innerText.toLowerCase().includes(query) ? '' : 'none'; });
+    }
+
+    function adjustColumnWidths(worksheet, jsonData) {
+        if (!jsonData || jsonData.length === 0) return;
+        const colWidths = Object.keys(jsonData[0]).map(key => {
+            let maxLen = key.length;
+            jsonData.forEach(row => {
+                const cellValue = row[key] ? row[key].toString() : "";
+                if (cellValue.length > maxLen) maxLen = cellValue.length;
+            });
+            return { wch: maxLen + 2 }; 
+        });
+        worksheet['!cols'] = colWidths;
+    }
+
+    function addAutoFilter(worksheet, data) {
+        if (data.length > 0) {
+            const range = XLSX.utils.decode_range(worksheet['!ref']);
+            worksheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 0, c: range.e.c } })};
+        }
+    }
+
+    function exportToExcel() {
+        if (allLootData.length === 0) { alert("No data to export!"); return; }
+
+        const historyData = allLootData.map(entry => {
+            const item = parseItemLink(entry.lootWon);
+            return {
+                "Date": formatDateTime(entry.date, entry.time), 
+                "Player": entry.player,
+                "Class": entry.class,
+                "Item Name": item.name,
+                "Item ID": item.id,
+                "Response": entry.response,
+                "Boss": entry.boss,
+                "Instance": entry.instance,
+                "Votes": entry.votes || 0
+            };
+        });
+
+        const statsData = playerStatsList.map(stat => {
+            const item = parseItemLink(stat.lastItem);
+            return {
+                "Player": stat.player,
+                "Class": stat.class,
+                "Total Items": stat.total,
+                "Main Spec": stat.ms,
+                "Off Spec": stat.os,
+                "Last Loot Date": formatDateTime(stat.lastDateStr, stat.lastTimeStr), 
+                "Last Item Won": item.name
+            };
+        });
+
+        const wb = XLSX.utils.book_new();
+        const wsHistory = XLSX.utils.json_to_sheet(historyData);
+        adjustColumnWidths(wsHistory, historyData); 
+        addAutoFilter(wsHistory, historyData);
+        XLSX.utils.book_append_sheet(wb, wsHistory, "Loot History");
+
+        const wsStats = XLSX.utils.json_to_sheet(statsData);
+        adjustColumnWidths(wsStats, statsData);
+        addAutoFilter(wsStats, statsData);
+        XLSX.utils.book_append_sheet(wb, wsStats, "Player Stats");
+
+        XLSX.writeFile(wb, "RCLootData.xlsx");
+    }
+</script>
+
+</body>
+</html>
